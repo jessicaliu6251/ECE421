@@ -61,3 +61,12 @@ def gradCE(target, prediction):
 
     # TODO
 
+
+trainData, validData, testData, trainTarget, validTarget, testTarget = loadData()
+
+train_data = trainData.reshape(trainData.shape[0],trainData.shape[1]*trainData.shape[2])
+valid_data = validData.reshape(validData.shape[0],validData.shape[1]*validData.shape[2])
+test_data = testData.reshape(testData.shape[0],testData.shape[1]*testData.shape[2])
+
+train_target, valid_target, test_target = convertOneHot(trainTarget, validTarget, testTarget)
+
