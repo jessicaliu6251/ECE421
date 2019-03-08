@@ -42,6 +42,20 @@ def shuffle(trainData, trainTarget):
     data, target = trainData[randIndx], target[randIndx]
     return data, target
 
+def flatten():
+
+    #data flatten
+    trainData_flatten = np.zeros((trainData.shape[0], trainData.shape[1]*trainData.shape[2]))
+    for i in range(trainData.shape[0]):
+        trainData_flatten[i] = np.ndarray.flatten(trainData[i])
+    valData_flatten = np.zeros((validData.shape[0], validData.shape[1]*validData.shape[2]))
+    for i in range(validData.shape[0]):
+        valData_flatten[i] = np.ndarray.flatten(validData[i])
+    testData_flatten = np.zeros((testData.shape[0], testData.shape[1]*testData.shape[2]))
+    for i in range(testData.shape[0]):
+        testData_flatten[i] = np.ndarray.flatten(testData[i])
+
+    return trainData_flatten, valData_flatten, testData_flatten
 
 def relu(x):
     # TODO
@@ -69,4 +83,149 @@ valid_data = validData.reshape(validData.shape[0],validData.shape[1]*validData.s
 test_data = testData.reshape(testData.shape[0],testData.shape[1]*testData.shape[2])
 
 train_target, valid_target, test_target = convertOneHot(trainTarget, validTarget, testTarget)
+trainData_flatten, valData_flatten, testData_flatten = flatten()
+
+training_epochs = 700
+mini_batch_size = 1750
+reg = 0
+
+
+def accuracy(y_hat, y):
+    count = 0
+    for i in range(len(y)):
+        if y_hat[i] == y[i]:
+            count += 1
+    acc = count/len(y)
+
+    return acc
+
+
+def build_nn_tf(num_input_channels, num_filters, filter_shape, pool_shape, learning_rate):
+
+    tf.set_random_seed(421)
+
+    X = tf.placeholder(tf.float32, [None, 784], name="inputs")
+    mode = tf.placeholder(tf.dtypes.bool, shape=1, name="mode")
+    X_shaped = tf.reshape(X, [-1, 28, 28, 1])
+    Y = tf.placeholder(tf.int32, [None, 1], name="labels")
+    lamda = tf.placeholder(tf.float64)
+
+
+    # setup the filter input shape for tf.nn.conv_2d
+    conv_filter_shape = [filter_shape[0], filter_shape[1], num_input_channels, num_filters]
+
+    # initialise weights and bias for the filter with Xavier scheme
+    xavier_initializer = tf.contrib.layers.xavier_initializer(uniform=True, seed=None, dtype=tf.dtypes.float32)
+    filters = tf.get_variable(name="conv_filterss", shape=conv_filter_shape, initializer=xavier_initializer)
+    bias = tf.get_variable(name="conv_bias", shape=[num_filters], initializer=tf.xavier_initializer)
+
+    # setup the convolutional layer operation
+    conv_layer = tf.nn.conv2d(X_shaped, filters, strides=[1, 2, 2, 1], padding='SAME')
+
+    # add the bias
+    conv_layer += bias
+
+    # apply a ReLU non-linear activation
+    relu_layer = tf.nn.relu(conv_layer)
+
+    #batch normalization
+    batch_norm_layer = tf.layers.batch_normalization(relu_layer, training=mode)
+
+    # now perform max pooling of size 2x2
+    pooling_ksize = [1, pool_shape[0], pool_shape[1], 1]
+    strides = [1, 2, 2, 1]
+    max_pooling_layer = tf.nn.max_pool(batch_norm_layer, ksize=pooling_ksize, strides=strides,
+                               padding='SAME')
+
+    #flatten the output from conv_layer, ***** need to check flattened shape *****
+    flattened = tf.reshape(max_pooling_layer, [-1, tf.shape(max_pooling_layer)[0]])
+
+    # setup some weights and bias values for this layer, then activate with ReLU
+    # need to check shape for weights and biases
+    wd1 = tf.get_variable(initializer=xavier_initializer, shape=[14 * 14 * 32, 784], name='wd1')
+    bd1 = tf.get_variable(initializer=xavier_initializer, shape=784, name='bd1')
+    dense_layer1 = tf.matmul(flattened, wd1) + bd1
+    dense_layer1 = tf.nn.relu(dense_layer1)
+
+    #setup some weights and bias values for fully connected and softmax layer, then activate with ReLU
+    wd2 = tf.get_variable(initializer=xavier_initializer, shape=[tf.shape(dense_layer1),10], name='wd2')
+    bd2 = tf.get_variable(initializer=xavier_initializer, shape=[10], name='bd2')
+    dense_layer2 = tf.matmul(dense_layer1, wd2) + bd2
+    y_pred = tf.argmax(input=dense_layer2, axis=1)
+
+    loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=dense_layer2, labels=Y))
+
+    adam = tf.train.AdamOptimizer(learning_rate=learning_rate)
+    optimizer = adam.minimize(loss=loss)
+    return optimizer, loss, y_pred, lamda, X, Y
+
+
+def SGD_tensorflow(learning_rate, training_epochs, num_input_channels, num_filters, filter_shape):
+
+    optimizer, loss, y_pred, lamda, X, Y = build_nn_tf(num_input_channels=num_input_channels,
+    num_filters=num_filters, filter_shape=filter_shape, learning_rate=learning_rate)
+
+    loss_train = np.zeros(training_epochs)
+    loss_val = np.zeros(training_epochs)
+    loss_test = np.zeros(training_epochs)
+    acc_train = np.zeros(training_epochs)
+    acc_val = np.zeros(training_epochs)
+    acc_test = np.zeros(training_epochs)
+
+    init = tf.global_variables_initializer()
+
+    with tf.Session() as sess:
+        sess.run(init)
+        for epoch in range(training_epochs):
+
+            # shuffling data for each epoch
+
+            index_order = np.random.permutation(range(len(trainTarget)))
+            trainData_shuffled = trainData_flatten[index_order]
+            trainTarget_shuffled = trainTarget[index_order]
+
+            for num_batch in range(int(len(trainTarget) / mini_batch_size)):
+                loss_train_per_batch, y_train_hat = \
+                    sess.run([loss, y_pred], feed_dict={
+                    X: trainData_shuffled[num_batch * mini_batch_size:(num_batch + 1) * mini_batch_size],
+                    Y: trainTarget_shuffled[num_batch * mini_batch_size:(num_batch + 1) * mini_batch_size],
+                    lamda: reg})
+
+                loss_val_per_batch, y_valid_hat = sess.run([loss, y_pred], feed_dict={X: valData_flatten,
+                                                               Y: validTarget,
+                                                               lamda: reg})
+
+                loss_test_per_batch, y_test_hat = sess.run([loss, y_pred], feed_dict={X: testData_flatten,
+                                                                Y: testTarget,
+                                                                lamda: reg})
+
+                # print("Epoch:", '%04d' % (epoch + 1), "loss=", "%.9f" % loss_train_per_batch)
+
+            # obtaining loss/accuracy values on training, validation and test data for each epoch
+            loss_train[epoch] = loss_train_per_batch
+            loss_val[epoch] = loss_val_per_batch
+            loss_test[epoch] = loss_test_per_batch
+            #acc_train[epoch] = accuracy(y_train_hat, trainTarget)
+            #acc_val[epoch] = accuracy(y_balid_hat, validTarget)
+            #acc_test[epoch] = accuracy(y_train_hat, testTarget)
+
+    # plot curves
+    epochs = range(1, training_epochs + 1)
+
+    # plot_loss_acc_part3(epochs, loss_train, loss_val, loss_test, acc_train, acc_val, acc_test, lossType=lossType)
+    print("loss_train = {Loss_train}\n"
+          "loss_val = {Loss_val}\n"
+          "loss_test = {Loss_test}\n"
+          "acc_train = {Acc_train}\n"
+          "acc_val = {Acc_val}\n"
+          "acc_test = {Acc_test}\n".format(Loss_train=loss_train[training_epochs - 1],
+                                           Loss_val=loss_val[training_epochs - 1],
+                                           Loss_test=loss_test[training_epochs - 1],
+                                           Acc_train=acc_train[training_epochs - 1],
+                                           Acc_val=acc_val[training_epochs - 1],
+                                           Acc_test=acc_test[training_epochs - 1])
+          )
+
+    return
+
 
