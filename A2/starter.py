@@ -88,8 +88,9 @@ trainData_flatten, valData_flatten, testData_flatten = flatten()
 
 training_epochs = 50
 mini_batch_size = 32
-reg = 0.1
+reg = 0.5
 alpha = 1e-4
+p = 0.5
 
 
 def accuracy(y_hat, y):
@@ -110,16 +111,15 @@ def build_nn_tf(num_input_channels, num_filters, filter_shape, pool_shape, learn
     mode = tf.placeholder(tf.bool)
     X_shaped = tf.reshape(X, [-1, 28, 28, 1])
     Y = tf.placeholder(tf.int32, [None, 10], name="labels")
-
+    keep_prob = tf.placeholder(tf.float32)
     lamda = tf.placeholder(tf.float32)
-
 
     # setup the filter input shape for tf.nn.conv_2d
     conv_filter_shape = [filter_shape[0], filter_shape[1], num_input_channels, num_filters]
 
     # initialise weights and bias for the filter with Xavier scheme
     xavier_initializer = tf.contrib.layers.xavier_initializer(uniform=True, seed=None, dtype=tf.float32)
-    regularizer = tf.contrib.layers.l2_regularizer(scale=0.1)
+    regularizer = tf.contrib.layers.l2_regularizer(scale=0.25)
     filters = tf.get_variable(name="conv_filterss", shape=conv_filter_shape, initializer=xavier_initializer,
                               regularizer=regularizer)
     bias = tf.get_variable(name="conv_bias", shape=num_filters, initializer=xavier_initializer)
@@ -132,7 +132,6 @@ def build_nn_tf(num_input_channels, num_filters, filter_shape, pool_shape, learn
 
     # apply a ReLU non-linear activation
     relu_layer = tf.nn.relu(conv_layer)
-    print(relu_layer)
 
     #batch normalization
     batch_norm_layer = tf.layers.batch_normalization(relu_layer, training=mode)
@@ -140,38 +139,38 @@ def build_nn_tf(num_input_channels, num_filters, filter_shape, pool_shape, learn
     # now perform max pooling of size 2x2
     pooling_ksize = [1, pool_shape[0], pool_shape[1], 1]
     strides = [1, 2, 2, 1]
-    max_pooling_layer = tf.nn.max_pool(batch_norm_layer, ksize=pooling_ksize, strides=strides,
-                               padding='SAME')
-    print(max_pooling_layer)
+    max_pooling_layer = tf.nn.max_pool(batch_norm_layer, ksize=pooling_ksize, strides=strides, padding='SAME')
 
     #flatten the output from conv_layer, ***** need to check flattened shape *****
     flattened = tf.reshape(max_pooling_layer, [-1, 7 * 7 * num_filters])
-    print(flattened)
+
     # setup some weights and bias values for this layer, then activate with ReLU
     # need to check shape for weights and biases
     wd1 = tf.get_variable(initializer=xavier_initializer, shape=[7 * 7 * num_filters, 784], name='wd1', regularizer=regularizer)
     bd1 = tf.get_variable(initializer=xavier_initializer, shape=784, name='bd1')
     dense_layer1 = tf.matmul(flattened, wd1) + bd1
-    dense_layer1 = tf.nn.relu(dense_layer1)
+    drop_out = tf.nn.dropout(dense_layer1, keep_prob)  # DROP-OUT here
+    drop_out = tf.nn.relu(drop_out)
 
     #setup some weights and bias values for fully connected and softmax layer, then activate with ReLU
     wd2 = tf.get_variable(initializer=xavier_initializer, shape=[784, 10], name='wd2', regularizer=regularizer)
     bd2 = tf.get_variable(initializer=xavier_initializer, shape=[10], name='bd2')
-    dense_layer2 = tf.matmul(dense_layer1, wd2) + bd2
+    dense_layer2 = tf.matmul(drop_out, wd2) + bd2
     y_pred = tf.argmax(input=dense_layer2, axis=1)
     loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=dense_layer2, labels=Y))
+    """
     reg_variables = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
     reg_term = tf.contrib.layers.apply_regularization(regularizer, reg_variables)
     loss += reg_term
-
+    """
     adam = tf.train.AdamOptimizer(learning_rate=learning_rate)
     optimizer = adam.minimize(loss=loss)
-    return optimizer, loss, y_pred, lamda, X, Y, mode
+    return optimizer, loss, y_pred, lamda, X, Y, mode, keep_prob
 
 
 def SGD_tensorflow(mini_batch_size, learning_rate, training_epochs, num_input_channels, num_filters, filter_shape):
 
-    optimizer, loss, y_pred, lamda, X, Y, mode = build_nn_tf(num_input_channels=num_input_channels,
+    optimizer, loss, y_pred, lamda, X, Y, mode, keep_prob = build_nn_tf(num_input_channels=num_input_channels,
                                                              num_filters=num_filters, filter_shape=filter_shape,
                                                              pool_shape=[2, 2], learning_rate=learning_rate)
 
@@ -216,7 +215,7 @@ def SGD_tensorflow(mini_batch_size, learning_rate, training_epochs, num_input_ch
                 _, loss_train_per_batch, y_train_hat = \
                     sess.run([optimizer, loss, y_pred], feed_dict={
                     X: trainData_shuffled[num_batch * mini_batch_size:(num_batch + 1) * mini_batch_size],
-                    Y: labels_train, mode: is_training, lamda: reg})
+                    Y: labels_train, mode: is_training, lamda: reg, keep_prob: p})
 
 
 
@@ -232,11 +231,11 @@ def SGD_tensorflow(mini_batch_size, learning_rate, training_epochs, num_input_ch
 
         loss_val, y_valid_hat = sess.run([loss, y_pred], feed_dict={X: valData_flatten,
                                                                           Y: labels_valid, mode: not_training,
-                                                                          lamda: reg})
+                                                                          lamda: reg, keep_prob: p})
 
         loss_test, y_test_hat = sess.run([loss, y_pred], feed_dict={X: testData_flatten,
                                                                           Y: labels_test, mode: not_training,
-                                                                          lamda: reg})
+                                                                          lamda: reg, keep_prob: p})
         acc_val = accuracy(y_valid_hat, validTarget)
         acc_test = accuracy(y_test_hat, testTarget)
     # plot curves
@@ -254,7 +253,6 @@ def SGD_tensorflow(mini_batch_size, learning_rate, training_epochs, num_input_ch
                                            Acc_val=acc_val,
                                            Acc_test=acc_test)
           )
-
     return
 
 
