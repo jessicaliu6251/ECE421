@@ -9,8 +9,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 dropout = True
 reg_on = False
 reg = 0.5
-p = 0.95
-
+p = 0.9
 
 # Load the data
 def loadData():
@@ -113,8 +112,10 @@ def plot_loss_acc_part2(epochs, loss_train, loss_val, loss_test, acc_train, acc_
     plt.plot(epochs, loss_test, 'yellow', label='Test loss')
     if dropout:
         title = 'SGD, Type={lossType}, Loss\nreg = 0.00, p = {keep_prob}'.format(lossType=lossType, keep_prob=p)
-    else:
+    elif reg_on:
         title = 'SGD, Type={lossType}, Loss\nreg = {reg}, no dropout'.format(lossType=lossType, reg=reg)
+    else:
+        title = 'SGD, Type={lossType}, Loss\nreg = 0.00, no dropout'.format(lossType=lossType)
 
     plt.title(title)
     plt.xlabel('Epochs')
@@ -127,16 +128,21 @@ def plot_loss_acc_part2(epochs, loss_train, loss_val, loss_test, acc_train, acc_
     plt.plot(epochs, acc_test, 'yellow', label='Test accuracy')
     if dropout:
         title = 'SGD, Type={lossType}, Accuracy\nreg = 0.00, p = {keep_prob}'.format(lossType=lossType, keep_prob=p)
-    else:
+    elif reg_on:
         title = 'SGD, Type={lossType}, Accuracy\nreg = {reg}, no dropout'.format(lossType=lossType, reg=reg)
+    else:
+        title = 'SGD, Type={lossType}, Accuracy\nreg = 0.00, no dropout'.format(lossType=lossType)
+
     plt.title(title)
     plt.xlabel('Epochs')
     plt.ylabel('Accuracy')
     plt.legend(['Train', 'Val', 'Test'], loc='lower right')
     if dropout:
         plt.savefig("part2_{lossType}_reg=0.00_p={keep_prob}.png".format(lossType=lossType, keep_prob=p))
-    else:
+    elif reg_on:
         plt.savefig("part2_{lossType}_reg={reg}_no_dropout.png".format(reg=reg, lossType=lossType))
+    else:
+        plt.savefig("part2_{lossType}_reg=0.00_no_dropout.png".format(lossType=lossType))
 
     plt.show()
 
